@@ -1,0 +1,271 @@
+/** Compatibility for Svelte v4 <-> v5 */
+import type ESTree from "estree";
+import type * as SvAST from "./svelte-ast-types.js";
+import type * as Compiler from "./svelte-ast-types-for-v5.js";
+
+export type Child =
+  | Compiler.AttachTag
+  | Compiler.Text
+  | Compiler.Tag
+  | Compiler.ElementLike
+  | Compiler.Block
+  | Compiler.Comment;
+type HasChildren = { children?: SvAST.TemplateNode[] };
+// Root
+export function getFragmentFromRoot(
+  svelteAst: Compiler.Root | SvAST.AstLegacy,
+): SvAST.Fragment | Compiler.Fragment | undefined {
+  return (
+    (svelteAst as Compiler.Root).fragment ?? (svelteAst as SvAST.AstLegacy).html
+  );
+}
+export function getInstanceFromRoot(
+  svelteAst: Compiler.Root | SvAST.AstLegacy,
+): SvAST.Script | Compiler.Script | null | undefined {
+  return svelteAst.instance;
+}
+export function getModuleFromRoot(
+  svelteAst: Compiler.Root | SvAST.AstLegacy,
+): SvAST.Script | Compiler.Script | null | undefined {
+  return svelteAst.module;
+}
+
+/**
+ * Source range of the instance `<script>` content, in original-source
+ * coordinates. Used to tell instance-script statements apart from module-script
+ * ones, which the virtual code concatenates.
+ */
+export function getInstanceScriptRange(
+  svelteAst: Compiler.Root | SvAST.AstLegacy,
+): [number, number] | null {
+  const instance = getInstanceFromRoot(svelteAst);
+  if (!instance) {
+    return null;
+  }
+  const content = (instance as { content?: { start?: number; end?: number } })
+    .content;
+  if (
+    content &&
+    typeof content.start === "number" &&
+    typeof content.end === "number"
+  ) {
+    return [content.start, content.end];
+  }
+  return [instance.start, instance.end];
+}
+export function getOptionsFromRoot(
+  svelteAst: Compiler.Root | SvAST.AstLegacy,
+): Compiler.SvelteOptionsRaw | null {
+  const root = svelteAst as Compiler.Root;
+  if (root.options) {
+    return {
+      type: "SvelteOptions",
+      name: "svelte:options",
+      // @ts-expect-error - name_loc is required in Svelte since 5.45.3 but we can not set it.
+      name_loc: null,
+      attributes: root.options.attributes,
+      fragment: {
+        type: "Fragment",
+        nodes: [],
+      },
+      start: root.options.start,
+      end: root.options.end,
+    };
+  }
+  return null;
+}
+
+export function getChildren(
+  fragment: Required<HasChildren> | { nodes: (Child | SvAST.TemplateNode)[] },
+): (SvAST.TemplateNode | Child)[];
+export function getChildren(
+  fragment: HasChildren | { nodes: (Child | SvAST.TemplateNode)[] },
+): (SvAST.TemplateNode | Child)[] | undefined;
+export function getChildren(
+  fragment: HasChildren | { nodes: (Child | SvAST.TemplateNode)[] },
+): (SvAST.TemplateNode | Child)[] | undefined {
+  return (
+    (fragment as { nodes: (Child | SvAST.TemplateNode)[] }).nodes ??
+    (fragment as HasChildren).children
+  );
+}
+export function trimChildren(
+  children: (SvAST.TemplateNode | Child)[],
+): (SvAST.TemplateNode | Child)[] {
+  if (
+    !startsWithWhitespace(children[0]) &&
+    !endsWithWhitespace(children[children.length - 1])
+  ) {
+    return children;
+  }
+
+  const nodes = [...children];
+  while (isWhitespace(nodes[0])) {
+    nodes.shift();
+  }
+  const first = nodes[0];
+  if (startsWithWhitespace(first)) {
+    nodes[0] = { ...first, data: first.data.trimStart() };
+  }
+  while (isWhitespace(nodes[nodes.length - 1])) {
+    nodes.pop();
+  }
+  const last = nodes[nodes.length - 1];
+  if (endsWithWhitespace(last)) {
+    nodes[nodes.length - 1] = { ...last, data: last.data.trimEnd() };
+  }
+  return nodes;
+
+  function startsWithWhitespace(
+    child: SvAST.TemplateNode | Child | undefined,
+  ): child is SvAST.Text | Compiler.Text {
+    if (!child) {
+      return false;
+    }
+    return child.type === "Text" && child.data.trimStart() !== child.data;
+  }
+
+  function endsWithWhitespace(
+    child: SvAST.TemplateNode | Child | undefined,
+  ): child is SvAST.Text | Compiler.Text {
+    if (!child) {
+      return false;
+    }
+    return child.type === "Text" && child.data.trimEnd() !== child.data;
+  }
+
+  function isWhitespace(child: SvAST.TemplateNode | Child | undefined) {
+    if (!child) {
+      return false;
+    }
+    return child.type === "Text" && child.data.trim() === "";
+  }
+}
+export function getFragment(
+  element:
+    | {
+        fragment: Compiler.Fragment;
+      }
+    | Required<HasChildren>,
+): Compiler.Fragment | Required<HasChildren>;
+export function getFragment(
+  element:
+    | {
+        fragment: Compiler.Fragment;
+      }
+    | HasChildren,
+): Compiler.Fragment | HasChildren;
+export function getFragment(
+  element:
+    | {
+        fragment: Compiler.Fragment;
+      }
+    | HasChildren,
+): Compiler.Fragment | HasChildren {
+  if (
+    (
+      element as {
+        fragment: Compiler.Fragment;
+      }
+    ).fragment
+  ) {
+    return (
+      element as {
+        fragment: Compiler.Fragment;
+      }
+    ).fragment;
+  }
+  return element as HasChildren;
+}
+export function getModifiers(
+  node: SvAST.Directive | SvAST.StyleDirective | Compiler.Directive,
+): string[] {
+  return (node as { modifiers?: string[] }).modifiers ?? [];
+}
+// IfBlock
+export function getTestFromIfBlock(
+  block: SvAST.IfBlock | Compiler.IfBlock,
+): ESTree.Expression {
+  return (
+    (block as SvAST.IfBlock).expression ?? (block as Compiler.IfBlock).test
+  );
+}
+export function getConsequentFromIfBlock(
+  block: SvAST.IfBlock | Compiler.IfBlock,
+): Compiler.Fragment | SvAST.IfBlock {
+  return (block as Compiler.IfBlock).consequent ?? (block as SvAST.IfBlock);
+}
+export function getAlternateFromIfBlock(
+  block: SvAST.IfBlock | Compiler.IfBlock,
+): Compiler.Fragment | SvAST.ElseBlock | null {
+  if ((block as Compiler.IfBlock).alternate) {
+    return (block as Compiler.IfBlock).alternate;
+  }
+  return (block as SvAST.IfBlock).else ?? null;
+}
+// EachBlock
+export function getBodyFromEachBlock(
+  block: SvAST.EachBlock | Compiler.EachBlock,
+): Compiler.Fragment | SvAST.EachBlock {
+  if ((block as Compiler.EachBlock).body) {
+    return (block as Compiler.EachBlock).body;
+  }
+  return block as SvAST.EachBlock;
+}
+export function getFallbackFromEachBlock(
+  block: SvAST.EachBlock | Compiler.EachBlock,
+): Compiler.Fragment | SvAST.ElseBlock | null {
+  if ((block as Compiler.EachBlock).fallback) {
+    return (block as Compiler.EachBlock).fallback!;
+  }
+  return (block as SvAST.EachBlock).else ?? null;
+}
+// AwaitBlock
+export function getPendingFromAwaitBlock(
+  block: SvAST.AwaitBlock | Compiler.AwaitBlock,
+): Compiler.Fragment | SvAST.PendingBlock | null {
+  const pending = block.pending;
+  if (!pending) {
+    return null;
+  }
+  if (pending.type === "Fragment") {
+    return pending;
+  }
+  return pending.skip ? null : pending;
+}
+export function getThenFromAwaitBlock(
+  block: SvAST.AwaitBlock | Compiler.AwaitBlock,
+): Compiler.Fragment | SvAST.ThenBlock | null {
+  const then = block.then;
+  if (!then) {
+    return null;
+  }
+  if (then.type === "Fragment") {
+    return then;
+  }
+  return then.skip ? null : then;
+}
+export function getCatchFromAwaitBlock(
+  block: SvAST.AwaitBlock | Compiler.AwaitBlock,
+): Compiler.Fragment | SvAST.CatchBlock | null {
+  const catchFragment = block.catch;
+  if (!catchFragment) {
+    return null;
+  }
+  if (catchFragment.type === "Fragment") {
+    return catchFragment;
+  }
+  return catchFragment.skip ? null : catchFragment;
+}
+
+// ConstTag
+export function getDeclaratorFromConstTag(
+  node: SvAST.ConstTag | Compiler.ConstTag,
+):
+  | ESTree.AssignmentExpression
+  | Compiler.ConstTag["declaration"]["declarations"][0] {
+  return (
+    (node as Compiler.ConstTag).declaration?.declarations?.[0] ??
+    (node as SvAST.ConstTag).expression
+  );
+}

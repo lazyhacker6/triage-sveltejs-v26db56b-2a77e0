@@ -1,0 +1,28 @@
+{
+  "compilerOptions": {
+    "target": "es2020",
+    "strict": true,
+    "lib": ["es2020", "DOM"],
+    "module": "NodeNext",
+    "moduleResolution": "Node16",
+    "allowJs": true,
+    "checkJs": true,
+    "declaration": true,
+    "noImplicitAny": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+
+    "skipLibCheck": true
+  },
+  "include": [
+    "src/**/*.ts",
+    "tests/**/*.ts",
+    "tools/**/*.ts",
+    "benchmark/**/*.ts",
+    "explorer-v2/**/*.d.ts"
+  ]
+}

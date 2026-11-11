@@ -1,0 +1,26 @@
+[
+  {
+    "ruleId": "prefer-const",
+    "code": "a",
+    "line": 3,
+    "column": 9
+  },
+  {
+    "ruleId": "prefer-const",
+    "code": "b",
+    "line": 3,
+    "column": 12
+  },
+  {
+    "ruleId": "prefer-const",
+    "code": "c",
+    "line": 3,
+    "column": 15
+  },
+  {
+    "ruleId": "prefer-const",
+    "code": "everythingElse",
+    "line": 3,
+    "column": 21
+  }
+]

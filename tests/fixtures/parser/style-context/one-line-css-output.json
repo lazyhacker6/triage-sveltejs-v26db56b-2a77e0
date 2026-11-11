@@ -1,0 +1,83 @@
+{
+  "status": "success",
+  "sourceLang": "css",
+  "sourceAst": {
+    "raws": {
+      "semicolon": false,
+      "after": " "
+    },
+    "type": "root",
+    "nodes": [
+      {
+        "raws": {
+          "before": " ",
+          "between": " ",
+          "semicolon": true,
+          "after": " "
+        },
+        "type": "rule",
+        "nodes": [
+          {
+            "raws": {
+              "before": " ",
+              "between": ": "
+            },
+            "type": "decl",
+            "prop": "color",
+            "value": "red",
+            "source": {
+              "end": {
+                "line": 7,
+                "column": 30,
+                "offset": 100
+              },
+              "inputId": 0,
+              "start": {
+                "line": 7,
+                "column": 20,
+                "offset": 89
+              }
+            }
+          }
+        ],
+        "selector": ".myClass",
+        "source": {
+          "end": {
+            "line": 7,
+            "column": 32,
+            "offset": 102
+          },
+          "inputId": 0,
+          "start": {
+            "line": 7,
+            "column": 9,
+            "offset": 78
+          }
+        },
+        "lastEach": 1,
+        "indexes": {}
+      }
+    ],
+    "source": {
+      "end": {
+        "line": 7,
+        "column": 34,
+        "offset": 103
+      },
+      "inputId": 0,
+      "start": {
+        "line": 7,
+        "column": 8,
+        "offset": 77
+      }
+    },
+    "lastEach": 1,
+    "indexes": {},
+    "inputs": [
+      {
+        "hasBOM": false,
+        "css": " .myClass { color: red; } "
+      }
+    ]
+  }
+}

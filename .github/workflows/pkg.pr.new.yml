@@ -1,0 +1,46 @@
+name: Publish to pkg.pr.new
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+    tags: ["!**"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    if: github.repository == 'sveltejs/svelte-eslint-parser'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - name: Install Packages
+        run: pnpm install --frozen-lockfile
+      - name: Build
+        run: pnpm run build
+      - run: pnpx pkg-pr-new publish --compact --json output.json --comment=off
+      - name: Add metadata to output
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const output = JSON.parse(fs.readFileSync('output.json', 'utf8'));
+            output.number = context.issue.number;
+            output.event_name = context.eventName;
+            output.ref = context.ref;
+            output.sha = context.eventName === 'pull_request'
+              ? context.payload.pull_request.head.sha
+              : context.payload.after;
+            fs.writeFileSync('output.json', JSON.stringify(output), 'utf8');
+      - name: Upload output
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: output
+          path: ./output.json
+
+      - run: ls -R .

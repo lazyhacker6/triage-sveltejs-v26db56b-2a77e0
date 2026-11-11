@@ -1,0 +1,87 @@
+[
+  [
+    "root",
+    {
+      "start": {
+        "line": 9,
+        "column": 7
+      },
+      "end": {
+        "line": 17,
+        "column": 1
+      }
+    },
+    [
+      89,
+      160
+    ]
+  ],
+  [
+    "rule",
+    {
+      "start": {
+        "line": 10,
+        "column": 2
+      },
+      "end": {
+        "line": 12,
+        "column": 3
+      }
+    },
+    [
+      92,
+      123
+    ]
+  ],
+  [
+    "decl",
+    {
+      "start": {
+        "line": 11,
+        "column": 4
+      },
+      "end": {
+        "line": 11,
+        "column": 15
+      }
+    },
+    [
+      107,
+      119
+    ]
+  ],
+  [
+    "rule",
+    {
+      "start": {
+        "line": 14,
+        "column": 2
+      },
+      "end": {
+        "line": 16,
+        "column": 3
+      }
+    },
+    [
+      126,
+      159
+    ]
+  ],
+  [
+    "decl",
+    {
+      "start": {
+        "line": 15,
+        "column": 4
+      },
+      "end": {
+        "line": 15,
+        "column": 24
+      }
+    },
+    [
+      134,
+      155
+    ]
+  ]
+]

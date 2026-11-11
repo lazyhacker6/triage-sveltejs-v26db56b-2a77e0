@@ -1,0 +1,20 @@
+[
+  {
+    "ruleId": "no-unused-vars",
+    "code": "params",
+    "line": 4,
+    "column": 37
+  },
+  {
+    "ruleId": "no-unused-vars",
+    "code": "u",
+    "line": 15,
+    "column": 13
+  },
+  {
+    "ruleId": "no-unused-vars",
+    "code": "index",
+    "line": 23,
+    "column": 22
+  }
+]

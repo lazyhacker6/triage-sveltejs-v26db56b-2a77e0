@@ -1,0 +1,14 @@
+[
+  {
+    "ruleId": "no-undef",
+    "code": "toggleValue",
+    "line": 32,
+    "column": 3
+  },
+  {
+    "ruleId": "no-undef",
+    "code": "toggleValue",
+    "line": 32,
+    "column": 18
+  }
+]

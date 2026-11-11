@@ -1,0 +1,32 @@
+{
+  "status": "success",
+  "sourceLang": "css",
+  "sourceAst": {
+    "raws": {
+      "after": ""
+    },
+    "type": "root",
+    "nodes": [],
+    "source": {
+      "end": {
+        "line": 7,
+        "column": 8,
+        "offset": 52
+      },
+      "inputId": 0,
+      "start": {
+        "line": 7,
+        "column": 8,
+        "offset": 52
+      }
+    },
+    "lastEach": 1,
+    "indexes": {},
+    "inputs": [
+      {
+        "hasBOM": false,
+        "css": ""
+      }
+    ]
+  }
+}

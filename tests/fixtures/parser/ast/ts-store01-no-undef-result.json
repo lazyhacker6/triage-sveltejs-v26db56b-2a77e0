@@ -1,0 +1,8 @@
+[
+  {
+    "ruleId": "no-undef",
+    "code": "$unknown",
+    "line": 14,
+    "column": 2
+  }
+]

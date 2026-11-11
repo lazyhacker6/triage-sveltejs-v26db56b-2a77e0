@@ -1,0 +1,13 @@
+# Do not adopt new versions of dependency libraries within the first 24 hours of their release (to reduce the risk of supply chain attacks).
+minimumReleaseAge: 1440
+
+minimumReleaseAgeExclude:
+  - svelte
+  - "@ota-meshi/*"
+  - typescript-eslint-parser-for-extra-files
+  # Renovate security update: webpack@5.104.1
+  - webpack@5.104.1
+  # Renovate security update: @sveltejs/kit@2.52.2 || 2.60.1 || 2.69.1
+  - "@sveltejs/kit@2.52.2 || 2.60.1 || 2.69.1"
+  # Renovate security update: vite@8.0.5 || 8.0.16 || 8.1.6
+  - vite@8.0.5 || 8.0.16 || 8.1.6
