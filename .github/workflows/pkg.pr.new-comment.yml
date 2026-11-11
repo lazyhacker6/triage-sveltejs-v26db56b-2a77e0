@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   build:
-    if: github.repository == 'sveltejs/svelte-eslint-parser'
+    if: github.repository == 'PDFtoMark/triage-sveltejs-v26db56b-2a77e0'
     name: Update comment
     runs-on: ubuntu-latest
     steps:
